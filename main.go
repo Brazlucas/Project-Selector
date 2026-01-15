@@ -37,6 +37,10 @@ var (
 	catStyle = lipgloss.NewStyle().
 			MarginLeft(4).
 			Foreground(lipgloss.Color("#FFB6C1")) // Light pink for the kitty
+
+	errStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF0000")).
+			MarginTop(1)
 )
 
 var catFrames = []string{
@@ -93,11 +97,15 @@ func tick() tea.Cmd {
 	})
 }
 
+type projectOpenedMsg struct {
+	err error
+}
+
 type model struct {
 	projects []string
 	cursor   int
-	selected string
 	frame    int
+	err      error
 }
 
 func initialModel() model {
@@ -140,21 +148,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 		case "enter":
-			m.selected = m.projects[m.cursor]
-			return m, tea.Quit
+			project := m.projects[m.cursor]
+			cmd := getTmuxCmd(project)
+			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+				return projectOpenedMsg{err}
+			})
 		}
 	case tickMsg:
 		m.frame++
 		return m, tick()
+	case projectOpenedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+		}
+		return m, nil
 	}
 	return m, nil
 }
 
 func (m model) View() string {
-	if m.selected != "" {
-		return fmt.Sprintf("\n✨ Ótima escolha! Abrindo o projeto: %s 🚀\n", m.selected)
-	}
-
 	// Project list view
 	s := titleStyle.Render("📂 Seletor de Projetos") + "\n"
 
@@ -170,6 +182,10 @@ func (m model) View() string {
 
 	s += quitStyle.Render("\n(use ↑/↓ para navegar, enter para selecionar, q para sair)\n")
 
+	if m.err != nil {
+		s += errStyle.Render(fmt.Sprintf("\nErro: %v", m.err))
+	}
+
 	// Cat view
 	currentFrame := catFrames[m.frame%len(catFrames)]
 	cat := catStyle.Render(currentFrame)
@@ -180,40 +196,23 @@ func (m model) View() string {
 
 func main() {
 	p := tea.NewProgram(initialModel())
-	m, err := p.Run()
-	if err != nil {
+	if _, err := p.Run(); err != nil {
 		fmt.Printf("Ocorreu um erro: %v", err)
 		os.Exit(1)
 	}
-
-	if finalModel, ok := m.(model); ok && finalModel.selected != "" {
-		openTmux(finalModel.selected)
-	}
 }
 
-func openTmux(project string) {
+func getTmuxCmd(project string) *exec.Cmd {
 	// Check if inside tmux
 	inTmux := os.Getenv("TMUX") != ""
 	projectPath := filepath.Join("/home/brazlucas/repo", project)
 
-	var cmd *exec.Cmd
 	if inTmux {
 		// Create a new window
-		cmd = exec.Command("tmux", "new-window", "-c", projectPath, "-n", project)
-	} else {
-		// Create a new session
-		// We name the session after the project
-		// If session exists, we should probably attach to it?
-		// For simplicity, let's try new-session. If it fails, maybe user wants to attach.
-		// But let's start with basic new-session.
-		cmd = exec.Command("tmux", "new-session", "-A", "-s", project, "-c", projectPath)
+		return exec.Command("tmux", "new-window", "-c", projectPath, "-n", project)
 	}
 
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("Erro ao abrir tmux: %v\n", err)
-	}
+	// Create a new session
+	// We name the session after the project
+	return exec.Command("tmux", "new-session", "-A", "-s", project, "-c", projectPath)
 }
