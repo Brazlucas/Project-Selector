@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -32,18 +33,77 @@ var (
 	quitStyle = lipgloss.NewStyle().
 			MarginTop(1).
 			Foreground(lipgloss.Color("241"))
+
+	catStyle = lipgloss.NewStyle().
+			MarginLeft(4).
+			Foreground(lipgloss.Color("#FFB6C1")) // Light pink for the kitty
 )
+
+var catFrames = []string{
+	`
+   /\_/\
+  ( o.o )
+   > ^ <
+`,
+	`
+   /\_/\
+  ( -.- )
+   > ^ <
+`,
+	`
+   /\_/\
+  ( o.o )
+   > ^ <
+`,
+	`
+    /\_/\
+   ( o.o )
+    > ^ <
+`,
+	`
+  /\_/\
+ ( o.o )
+  > ^ <
+`,
+	`
+   /\_/\
+  ( o.o )
+   > ^ <
+   oo
+`,
+	`
+   /\_/\
+  ( -.- )
+   > p <
+   oo
+`,
+	`
+   /\_/\
+  ( o.o )
+   > p <
+   oo
+`,
+}
+
+type tickMsg time.Time
+
+func tick() tea.Cmd {
+	return tea.Tick(time.Millisecond*200, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
 
 type model struct {
 	projects []string
 	cursor   int
 	selected string
+	frame    int
 }
 
 func initialModel() model {
 	// Path to the repository containing projects
 	repoPath := "/home/brazlucas/repo"
-	
+
 	entries, err := os.ReadDir(repoPath)
 	if err != nil {
 		log.Fatal(err)
@@ -62,7 +122,7 @@ func initialModel() model {
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return tick()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -83,6 +143,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = m.projects[m.cursor]
 			return m, tea.Quit
 		}
+	case tickMsg:
+		m.frame++
+		return m, tick()
 	}
 	return m, nil
 }
@@ -92,6 +155,7 @@ func (m model) View() string {
 		return fmt.Sprintf("\n✨ Ótima escolha! Abrindo o projeto: %s 🚀\n", m.selected)
 	}
 
+	// Project list view
 	s := titleStyle.Render("📂 Seletor de Projetos") + "\n"
 
 	for i, project := range m.projects {
@@ -105,7 +169,13 @@ func (m model) View() string {
 	}
 
 	s += quitStyle.Render("\n(use ↑/↓ para navegar, enter para selecionar, q para sair)\n")
-	return s
+
+	// Cat view
+	currentFrame := catFrames[m.frame%len(catFrames)]
+	cat := catStyle.Render(currentFrame)
+
+	// Combine views side-by-side
+	return lipgloss.JoinHorizontal(lipgloss.Top, s, cat)
 }
 
 func main() {
